@@ -387,4 +387,47 @@ public class TestRemoveSnapshots extends TableTestBase {
     Assert.assertTrue("FILE_A should be deleted", deletedFiles.contains(FILE_A.path().toString()));
     Assert.assertTrue("FILE_B should be deleted", deletedFiles.contains(FILE_B.path().toString()));
   }
+
+  /**
+   * Test on table below, and expiring the staged commit `B` using `expireOlderThan` API.
+   * Table: A - C
+   *          ` B (staged)
+   */
+  @Test
+  public void testWithExpiringDanglingStageCommitFail() {
+    // `A` commit
+    table.newAppend()
+        .appendFile(FILE_A)
+        .commit();
+
+    // `B` staged commit
+    table.newAppend()
+        .appendFile(FILE_B)
+        .stageOnly()
+        .commit();
+
+    TableMetadata base = readMetadata();
+    Snapshot snapshotB = base.snapshots().get(1);
+
+    // `C` commit
+    table.newAppend()
+        .appendFile(FILE_C)
+        .commit();
+
+    List<Snapshot> existingSnapshots = readMetadata().snapshots();
+    try {
+      // Expire all commits including dangling staged snapshot.
+      table.expireSnapshots()
+          .deleteWith(item -> {
+            throw new RuntimeException("Failure from underlying storage.");
+          })
+          .expireOlderThan(snapshotB.timestampMillis() + 1)
+          .commit();
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
+
+    //Considering that snapshot is gone from history, how are we support to try clean up?
+    assert (readMetadata().snapshots().size() != existingSnapshots.size());
+  }
 }
